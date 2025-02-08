@@ -1,16 +1,42 @@
-import socket
+from socket import socket, AF_INET, SOCK_STREAM
 
-def start_client():
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(('localhost', 12345))  # Connect to the server
+# defined server name and port
+serverName = "servername"
+serverPort = 12000
 
-    message = input("Enter message to send: ")
-    client_socket.send(message.encode())
+clientSocket = socket(AF_INET, SOCK_STREAM)
 
-    data = client_socket.recv(1024).decode()
-    print(f"Received from server: {data}")
+# client attempts to connect to server
+# error handling if client could not connect?
+# try:
+clientSocket.connect(("", serverPort))
+# except:
+#    print("Failed to connect")
 
-    client_socket.close()
+# main client loop while socket open
+while True:
+    # user input prompt
+    sentence = input("Input sentence:")
 
-if __name__ == '__main__':
-    start_client()
+    # send user input to server
+    clientSocket.send(sentence.encode())
+
+    # receive server response
+    modifiedSentence = clientSocket.recv(1024)
+    modifiedSentenceData = modifiedSentence.decode()
+
+    # exit condition
+    if modifiedSentenceData == "EXIT":
+        break
+
+    elif modifiedSentenceData == "STATUS":
+        # todo: print status of cache from server?
+        continue
+
+    # no special condition:
+    # server should return input with "ACK" appended
+    print("From Server:", modifiedSentence.decode())
+
+# after finished, close socket
+# todo: ensure it is freed up on server side?
+clientSocket.close()
