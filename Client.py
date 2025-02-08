@@ -14,7 +14,17 @@ clientSocket.connect(("", serverPort))
 #    print("Failed to connect")
 
 # main client loop while socket open
-while True:
+
+connectionMessage = clientSocket.recv(1024).decode()
+if connectionMessage == "200":
+    flag = True
+
+else:
+    flag = False
+    print(connectionMessage)
+
+
+while flag:
     # user input prompt
     sentence = input("Input sentence:")
 

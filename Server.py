@@ -1,113 +1,128 @@
 import datetime  # for getting current day
 import socket
+import threading
 from dataclasses import dataclass
 
 
-# struct for cache
-# this might be overkill
+# Struct for cache
 @dataclass
 class clientCache:
-    connected: bool  # true if client active
-    clientName: str  # defined by client
-    serverSideName: str  # "Client##" format set by server (when connected)
+    connected: bool  # True if client active
+    clientName: str  # Defined by client
+    serverSideName: str  # "Client##" format set by server
     dateConnected: str  # "yyyy-mm-dd"
     timeConnected: str  # "hh:mm"
     dateFinished: str  # "yyyy-mm-dd"
     timeFinished: str  # "hh:mm"
 
-    # magic function, return contents of class object when class called
-    # prints over 2 lines
     def __repr__(self):
-        return "\nClient: {}\nServerSideName: {}\nConnected: {}\nDate Accepted: {}\nTime Accepted: {}\nDate Finished: {}\nTime Finished: {}\n".format(
-            self.clientName,
-            self.serverSideName,
-            self.connected,
-            self.dateConnected,
-            self.timeConnected,
-            self.dateFinished,
-            self.timeFinished,
+        return (
+            f"\nClient: {self.clientName}\n"
+            f"ServerSideName: {self.serverSideName}\n"
+            f"Connected: {self.connected}\n"
+            f"Date Accepted: {self.dateConnected}\n"
+            f"Time Accepted: {self.timeConnected}\n"
+            f"Date Finished: {self.dateFinished}\n"
+            f"Time Finished: {self.timeFinished}\n"
         )
 
 
-# client cache variables
-clientList = list[clientCache]()  # list for holding current/future clients
-clientLimit = 3  # assumed limit of 3
-clientConcurrent = 0  # init server with 0 connected clients
-clientCounter = 1
+# Global variables for client handling
+clientList = []  # List for holding current/future clients
+clientLimit = 3  # Maximum concurrent clients
+clientCounter = 0
+lock = threading.Lock()  # Prevents race conditions when modifying shared data
 
-# init server variables
+# Initialize server
 serverPort = 12000
 serverName = ""
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((serverName, serverPort))  # Bind to serverName on port serverPort
-server_socket.listen(1)
+server_socket.listen(clientLimit)  # Allow up to clientLimit pending connections
 print("Server is listening...")
 
-# client handling
-# todo: client assign name
-# todo: client limit (3)
+
+# Function to handle each client in a separate thread
+def handle_client(client_socket, addr):
+    global clientCounter
+    with lock:  # Ensure safe modification of shared variables
+        if clientCounter >= clientLimit:
+            client_socket.send("Server is full. Try again later.".encode())
+            client_socket.close()
+            return
+        else:
+            client_socket.send("200".encode())
+
+        # Assign client number
+        serverSideName = f"Client{len(clientList) + 1:02d}"
+        clientCounter += 1
+
+        # Register client in cache
+        currentDateTime = datetime.datetime.now()
+        clientCacheInit = clientCache(
+            connected=True,
+            clientName=str(addr),  # Store as string
+            serverSideName=serverSideName,
+            dateConnected=currentDateTime.strftime("%Y-%m-%d"),
+            timeConnected=currentDateTime.strftime("%H:%M:%S"),
+            dateFinished="",
+            timeFinished="",
+        )
+        clientList.append(clientCacheInit)
+
+    print(f"New client connected: {addr} -> {serverSideName}")
+
+    while True:
+        try:
+            sentence = client_socket.recv(1024).decode()
+            if not sentence:
+                break  # Handle client disconnect
+
+            # Exit condition
+            if sentence.lower() == "exit":
+                with lock:  # Ensure safe modification of shared variables
+                    for client in clientList:
+                        if client.clientName == str(addr):
+                            client.connected = False
+                            client.dateFinished = datetime.datetime.now().strftime(
+                                "%Y-%m-%d"
+                            )
+                            client.timeFinished = datetime.datetime.now().strftime(
+                                "%H:%M:%S"
+                            )
+                            print(f"Client {addr} ({serverSideName}) disconnected.")
+                            break
+
+                client_socket.send("EXIT".encode())
+                clientCounter -= 1
+                break
+
+            # Status condition
+            elif sentence.lower() == "status":
+                with lock:
+                    status_msg = "\n".join([str(client) for client in clientList])
+                client_socket.send(status_msg.encode())
+
+            else:
+                # Acknowledge received message
+                ackSentence = sentence + " ACK"
+                client_socket.send(ackSentence.encode())
+
+        except ConnectionResetError:
+            print(f"Client {addr} disconnected unexpectedly.")
+            clientCounter -= 1
+            break
+
+    client_socket.close()
+
+
+# Accept and handle multiple clients using threading
 while True:
     client_socket, addr = server_socket.accept()
-    print(f"Connection from {addr}")
+    print(f"Accepted connection from {addr}")
 
-    # get current date and time for client connection init
-    currentDateTime = datetime.datetime.now()
-    # successful client connection, add to clientList
-    # todo: check implementation of datetime format (strftime)
-    clientCacheInit = clientCache(
-        connected=True,
-        clientName=addr,  # client might want to add/change name later?
-        serverSideName=f"Client{clientCounter:02d}",  # adjust for multiple clients
-        dateConnected=currentDateTime.strftime("%d-%m-%Y %p"),
-        timeConnected=currentDateTime.strftime("%H:%M:%S"),
-        dateFinished="",
-        timeFinished="",
+    # Start a new thread for each client
+    client_thread = threading.Thread(
+        target=handle_client, args=(client_socket, addr), daemon=True
     )
-
-    # todo: limit clientList size based on clientLimit (3)
-    clientList.append(clientCacheInit)
-    clientCounter += 1
-
-    # main server loop
-    # todo: multi-threading
-    # todo: cache
-    # cache: accepted clients during session, date and time accepted, date and time finished
-    while True:
-        sentence = client_socket.recv(1024).decode()
-
-        # exit condition:
-        # client sent "exit" as message
-        # stop server
-        # todo: change to stop client
-        # different way to close server?
-        if sentence == "exit":
-            # update dateFinished, timeFinished in client cache
-            # todo: actual way to identify current client and not hard coded
-            # todo: check if above strftime format works for below
-            clientNum = 0
-            currentDateTime = datetime.datetime.now()
-            clientList[clientNum].connected = False
-            clientList[clientNum].serverSideName = ""  # clear Client## from cache
-            clientList[clientNum].dateFinished = currentDateTime.strftime("%d-%m-%Y %p")
-            clientList[clientNum].timeFinished = currentDateTime.strftime("%H:%M:%S")
-
-            client_socket.send("EXIT".encode())
-            client_socket.close()
-            break
-        # status condition
-        elif sentence == "status":
-            # print content of each entry in cache from clientList
-            # todo: check if this works lol
-            val = ""
-            for i in range(len(clientList)):
-                val += clientList[i].__repr__()
-
-            client_socket.send(val.encode())
-        else:
-            # no special condition
-            # return input with ACK appended
-            ackSentence = sentence + " ACK"
-            client_socket.send(ackSentence.encode())
-
-    # server loop ends, close socket
-    client_socket.close()
+    client_thread.start()
