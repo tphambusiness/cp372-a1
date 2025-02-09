@@ -21,7 +21,7 @@ else:
 
 while flag:
     # user input prompt
-    sentence = input("Input sentence: ")
+    sentence = input("Input sentence (Keywords: 'status', 'exit'): ")
 
     # send user input to server
     clientSocket.send(sentence.encode())
