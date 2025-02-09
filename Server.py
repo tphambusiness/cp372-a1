@@ -49,6 +49,7 @@ def handle_client(client_socket, addr):
         if clientCounter >= clientLimit:
             client_socket.send("Server is full. Try again later.".encode())
             client_socket.close()
+            print(f"Client ({addr}) attempted to connect while server at capacity {clientLimit}.")
             return
         else:
             client_socket.send("200".encode())
