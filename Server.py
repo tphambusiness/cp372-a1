@@ -2,7 +2,7 @@ import datetime  # for getting current day
 import socket
 import threading
 from dataclasses import dataclass
-
+import os
 
 # Struct for cache
 @dataclass
@@ -41,7 +41,6 @@ server_socket.bind((serverName, serverPort))  # Bind to serverName on port serve
 server_socket.listen(clientLimit)  # Allow up to clientLimit pending connections
 print("Server is listening...")
 
-
 # Function to handle each client in a separate thread
 def handle_client(client_socket, addr):
     global clientCounter
@@ -79,11 +78,13 @@ def handle_client(client_socket, addr):
             if not sentence:
                 break  # Handle client disconnect
 
+            # special conditions when client sends keywords
             # Exit condition
             if sentence.lower() == "exit":
                 with lock:  # Ensure safe modification of shared variables
                     for client in clientList:
                         if client.clientName == str(addr):
+                            # update client status in cache
                             client.connected = False
                             client.dateFinished = datetime.datetime.now().strftime(
                                 "%Y-%m-%d"
@@ -93,24 +94,54 @@ def handle_client(client_socket, addr):
                             )
                             print(f"Client {addr} ({serverSideName}) disconnected.")
                             break
-
+                # free up socket used by client
                 client_socket.send("EXIT".encode())
                 clientCounter -= 1
                 break
 
             # Status condition
             elif sentence.lower() == "status":
+                # send cache list to client
                 with lock:
                     status_msg = "\n".join([str(client) for client in clientList])
                 client_socket.send(status_msg.encode())
+
+            # List condition
+            # send a list of file names in server directory
+            elif sentence.lower() == "list":
+                # fix server path to directory of server
+                serverDir = os.path.dirname(os.path.abspath(__file__))
+                os.chdir(serverDir)
+
+                # only return files found
+                with lock:
+                    directory = "."
+                    files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+                    fileList = "\n" + "\n".join(files) if files else "No files found"
+
+                client_socket.send(fileList.encode())
 
             else:
                 # Acknowledge received message
                 ackSentence = sentence + " ACK"
                 client_socket.send(ackSentence.encode())
 
+        # error: unexpected client disconnection
         except ConnectionResetError:
             print(f"Client {addr} disconnected unexpectedly.")
+
+            # update client status in cache
+            for client in clientList:
+                if client.clientName == str(addr):
+                    # update client status in cache
+                    client.connected = False
+                    client.dateFinished = datetime.datetime.now().strftime(
+                        "%Y-%m-%d"
+                    )
+                    client.timeFinished = datetime.datetime.now().strftime(
+                        "%H:%M:%S"
+                    )
+                    break
             clientCounter -= 1
             break
 
